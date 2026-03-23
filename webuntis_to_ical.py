@@ -101,7 +101,6 @@ def main():
         school=SCHOOL,
         username=USERNAME,
         password=PASSWORD,
-        useKeyring=False,
     ) as session:
         session.login()
         print("Login erfolgreich.")
