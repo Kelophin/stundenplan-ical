@@ -66,8 +66,21 @@ def logout():
     except Exception:
         pass
 
-def get_current_user():
-    return rpc("getCurrentUser")
+def get_student_id():
+    """Holt die eigene Schüler-ID über getStudents."""
+    result = rpc("getStudents")
+    if not result:
+        raise Exception("Keine Schülerdaten gefunden.")
+    # Finde den eigenen Eintrag per Benutzername
+    for s in result:
+        if s.get("name", "").lower() == USERNAME.lower() or s.get("longName", "").lower() == USERNAME.lower():
+            return s["id"]
+    # Fallback: eigene Person über getPersonId
+    person = rpc("getPersonId", {"type": 5, "id": 0, "date": 0})
+    if person:
+        return person
+    # Letzter Fallback: ersten Schüler nehmen (nur wenn Einzelaccount)
+    raise Exception(f"Konnte Schüler-ID nicht ermitteln. Verfügbare Felder: {list(result[0].keys()) if result else 'keine'}") 
 
 def get_timetable(student_id, start: datetime.date, end: datetime.date):
     return rpc("getTimetable", {
@@ -155,8 +168,7 @@ def main():
     print("Verbinde mit WebUntis...")
     login()
     try:
-        user       = get_current_user()
-        student_id = user["id"]
+        student_id = get_student_id()
         print(f"Schüler-ID: {student_id}")
 
         today = datetime.date.today()
