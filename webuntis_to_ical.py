@@ -7,8 +7,8 @@ import json
 from icalendar import Calendar, Event
 
 # ── Konfiguration ──────────────────────────────────────────────────────────────
-SERVER   = "rueckert-gym.webuntis.com"
-SCHOOL   = "Rückert-Gymnasium"
+SERVER   = "ruckert-gym.webuntis.com"
+SCHOOL   = "ruckert-gym"
 USERNAME = os.environ["WEBUNTIS_USER"]
 PASSWORD = os.environ["WEBUNTIS_PASS"]
 TIMEZONE = pytz.timezone("Europe/Berlin")
@@ -44,24 +44,6 @@ def rpc(method, params=None):
     return data.get("result")
 
 def find_school_name():
-    """Sucht den exakten internen Schulnamen über die WebUntis-Suche."""
-    search_url = "https://mobile.webuntis.com/ms/schoolquery2"
-    r = http.get(
-        search_url,
-        params={"search": "Rückert"},
-        headers={"Content-Type": "application/json"},
-        timeout=30,
-    )
-    r.raise_for_status()
-    data = r.json()
-    schools = data.get("schools", [])
-    print(f"Gefundene Schulen: {[s.get('loginName') for s in schools]}")
-    for s in schools:
-        if "rueckert-gym" in s.get("server", "").lower() or "rückert" in s.get("displayName", "").lower():
-            return s["loginName"]
-    # Fallback: nimm die erste
-    if schools:
-        return schools[0]["loginName"]
     return SCHOOL
 
 def login():
