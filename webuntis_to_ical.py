@@ -3,6 +3,7 @@ import datetime
 import uuid
 import os
 import pytz
+import json
 from icalendar import Calendar, Event
 
 # ── Konfiguration ──────────────────────────────────────────────────────────────
@@ -13,11 +14,12 @@ PASSWORD = os.environ["WEBUNTIS_PASS"]
 TIMEZONE = pytz.timezone("Europe/Berlin")
 OUTPUT   = "calendar.ics"
 BASE_URL = f"https://{SERVER}/WebUntis/jsonrpc.do"
-PARAMS   = {"school": SCHOOL}
 # ──────────────────────────────────────────────────────────────────────────────
 
-session_id = None
-http = requests.Session()
+session_id  = None
+school_name = None   # wird beim Login gesetzt
+http        = requests.Session()
+http.headers.update({"User-Agent": "WebUntis-iCal-Export/1.0"})
 
 def rpc(method, params=None):
     payload = {
@@ -26,49 +28,80 @@ def rpc(method, params=None):
         "params":  params or {},
         "jsonrpc": "2.0",
     }
-    headers = {"Content-Type": "application/json"}
     if session_id:
         http.cookies.set("JSESSIONID", session_id)
-    r = http.post(BASE_URL, json=payload, params=PARAMS, headers=headers)
+    r = http.post(
+        BASE_URL,
+        json=payload,
+        params={"school": school_name or SCHOOL},
+        headers={"Content-Type": "application/json"},
+        timeout=30,
+    )
     r.raise_for_status()
     data = r.json()
     if "error" in data:
-        raise Exception(f"WebUntis Fehler: {data['error']}")
+        raise Exception(f"WebUntis API Fehler [{data['error'].get('code')}]: {data['error'].get('message')}")
     return data.get("result")
 
+def find_school_name():
+    """Sucht den exakten internen Schulnamen über die WebUntis-Suche."""
+    search_url = "https://mobile.webuntis.com/ms/schoolquery2"
+    r = http.get(
+        search_url,
+        params={"search": "Rückert"},
+        headers={"Content-Type": "application/json"},
+        timeout=30,
+    )
+    r.raise_for_status()
+    data = r.json()
+    schools = data.get("schools", [])
+    print(f"Gefundene Schulen: {[s.get('loginName') for s in schools]}")
+    for s in schools:
+        if "rueckert-gym" in s.get("server", "").lower() or "rückert" in s.get("displayName", "").lower():
+            return s["loginName"]
+    # Fallback: nimm die erste
+    if schools:
+        return schools[0]["loginName"]
+    return SCHOOL
+
 def login():
-    global session_id
+    global session_id, school_name
+    school_name = find_school_name()
+    print(f"Schulname gefunden: '{school_name}'")
     result = rpc("authenticate", {
         "user":     USERNAME,
         "password": PASSWORD,
         "client":   "iCal-Export",
     })
     session_id = result["sessionId"]
-    print(f"Login erfolgreich. Session: {session_id[:8]}...")
+    print(f"Login erfolgreich.")
     return result
 
 def logout():
-    rpc("logout")
-    print("Logout erfolgreich.")
+    try:
+        rpc("logout")
+        print("Logout erfolgreich.")
+    except Exception:
+        pass
+
+def get_current_user():
+    return rpc("getCurrentUser")
 
 def get_timetable(student_id, start: datetime.date, end: datetime.date):
     return rpc("getTimetable", {
         "options": {
-            "id":          int(datetime.datetime.now().timestamp()),
-            "element":     {"id": student_id, "type": 5},
-            "startDate":   int(start.strftime("%Y%m%d")),
-            "endDate":     int(end.strftime("%Y%m%d")),
-            "showLsText":  True,
+            "id":               int(datetime.datetime.now().timestamp()),
+            "element":          {"id": student_id, "type": 5},
+            "startDate":        int(start.strftime("%Y%m%d")),
+            "endDate":          int(end.strftime("%Y%m%d")),
+            "showLsText":       True,
             "showStudentgroup": True,
-            "showLsNumber": True,
-            "showSubstText": True,
-            "showInfo":    True,
-            "showBooking": True,
+            "showLsNumber":     True,
+            "showSubstText":    True,
+            "showInfo":         True,
+            "showBooking":      True,
         }
     })
-
-def get_current_user():
-    return rpc("getCurrentUser")
 
 def parse_dt(date_int, time_int) -> datetime.datetime:
     date_str = str(date_int)
@@ -82,8 +115,7 @@ def lesson_type(lesson) -> str:
         return "CANCELLED"
     if code == 2:
         return "IRREGULAR"
-    lstype = lesson.get("lstype", "")
-    if lstype == "oh":
+    if lesson.get("lstype") == "oh":
         return "ADDITIONAL"
     return "REGULAR"
 
@@ -132,7 +164,6 @@ def lesson_to_event(lesson) -> Event:
     rooms = ", ".join(r["name"] for r in lesson.get("ro", []))
     if rooms:
         event.add("location", rooms)
-
     if ltype == "CANCELLED":
         event.add("status", "CANCELLED")
 
@@ -141,9 +172,8 @@ def lesson_to_event(lesson) -> Event:
 def main():
     print("Verbinde mit WebUntis...")
     login()
-
     try:
-        user = get_current_user()
+        user       = get_current_user()
         student_id = user["id"]
         print(f"Schüler-ID: {student_id}")
 
@@ -155,8 +185,8 @@ def main():
         print(f"{len(timetable)} Stunden gefunden.")
 
         cal = Calendar()
-        cal.add("prodid",  "-//WebUntis iCal Export//DE")
-        cal.add("version", "2.0")
+        cal.add("prodid",   "-//WebUntis iCal Export//DE")
+        cal.add("version",  "2.0")
         cal.add("calscale", "GREGORIAN")
         cal.add("x-wr-calname",  "Stundenplan")
         cal.add("x-wr-timezone", "Europe/Berlin")
@@ -171,7 +201,6 @@ def main():
                 print(f"  ⚠ Stunde übersprungen: {e}")
 
         print(f"{count} Stunden verarbeitet.")
-
         with open(OUTPUT, "wb") as f:
             f.write(cal.to_ical())
         print(f"✅ Kalender gespeichert als '{OUTPUT}'.")
