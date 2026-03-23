@@ -1,0 +1,39 @@
+name: WebUntis → iCal
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # alle 30 Minuten
+  workflow_dispatch:           # manuell auslösbar
+
+permissions:
+  contents: write              # darf calendar.ics committen
+
+jobs:
+  update-calendar:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Abhängigkeiten installieren
+        run: pip install webuntis icalendar pytz
+
+      - name: Kalender generieren
+        env:
+          WEBUNTIS_USER: ${{ secrets.WEBUNTIS_USER }}
+          WEBUNTIS_PASS: ${{ secrets.WEBUNTIS_PASS }}
+        run: python webuntis_to_ical.py
+
+      - name: calendar.ics committen & pushen
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add calendar.ics
+          git diff --cached --quiet || git commit -m "chore: Kalender aktualisiert $(date -u '+%Y-%m-%d %H:%M') UTC"
+          git push
