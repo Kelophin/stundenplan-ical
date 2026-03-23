@@ -46,7 +46,16 @@ def logout():
     except Exception:
         pass
 
-def get_timetable(person_id, start: datetime.date, end: datetime.date):
+def build_lookup(method):
+    """Baut ein id→name Dict aus einer API-Methode."""
+    try:
+        result = rpc(method) or []
+        return {item["id"]: item.get("name") or item.get("longName") or str(item["id"]) for item in result}
+    except Exception as e:
+        print(f"  ⚠ {method} nicht verfügbar: {e}")
+        return {}
+
+def get_timetable(person_id, start, end):
     return rpc("getTimetable", {
         "options": {
             "id":               int(datetime.datetime.now().timestamp()),
@@ -62,56 +71,59 @@ def get_timetable(person_id, start: datetime.date, end: datetime.date):
         }
     })
 
-def parse_dt(date_int, time_int) -> datetime.datetime:
+def parse_dt(date_int, time_int):
     time_str = str(time_int).zfill(4)
     dt = datetime.datetime.strptime(str(date_int) + time_str, "%Y%m%d%H%M")
     return TIMEZONE.localize(dt)
 
-def lesson_type(lesson) -> str:
+def lesson_type(lesson):
     code = lesson.get("code", 0)
     if code == 1: return "CANCELLED"
     if code == 2: return "IRREGULAR"
     if lesson.get("lstype") == "oh": return "ADDITIONAL"
     return "REGULAR"
 
-def build_summary(lesson, ltype) -> str:
-    subjects = ", ".join(s.get("name") or s.get("longName") or "?" for s in lesson.get("su", [])) or "Unbekannt"
+def resolve(ids, lookup):
+    return ", ".join(lookup.get(item["id"], str(item["id"])) for item in ids)
+
+def build_summary(lesson, ltype, subjects):
+    su = resolve(lesson.get("su", []), subjects) or "Unbekannt"
     prefix = {
         "CANCELLED":  "❌ AUSFALL – ",
         "IRREGULAR":  "🔄 Vertretung – ",
         "ADDITIONAL": "➕ ",
         "REGULAR":    "",
     }[ltype]
-    return f"{prefix}{subjects}"
+    return f"{prefix}{su}"
 
-def build_description(lesson, ltype) -> str:
+def build_description(lesson, ltype, teachers, rooms, classes):
     lines = []
-    teachers = ", ".join(t.get("name") or t.get("longName") or "?" for t in lesson.get("te", []))
-    if teachers:   lines.append(f"Lehrer: {teachers}")
-    rooms = ", ".join(r.get("name") or r.get("longName") or "?" for r in lesson.get("ro", []))
-    if rooms:      lines.append(f"Raum: {rooms}")
-    classes = ", ".join(c.get("name") or c.get("longName") or "?" for c in lesson.get("kl", []))
-    if classes:    lines.append(f"Klasse: {classes}")
+    te = resolve(lesson.get("te", []), teachers)
+    ro = resolve(lesson.get("ro", []), rooms)
+    kl = resolve(lesson.get("kl", []), classes)
+    if te: lines.append(f"Lehrer: {te}")
+    if ro: lines.append(f"Raum: {ro}")
+    if kl: lines.append(f"Klasse: {kl}")
     if lesson.get("info"):      lines.append(f"Info: {lesson['info']}")
     if lesson.get("substText"): lines.append(f"Vertretungstext: {lesson['substText']}")
     if lesson.get("lstext"):    lines.append(f"Text: {lesson['lstext']}")
     return "\n".join(lines)
 
-def lesson_to_event(lesson) -> Event:
+def lesson_to_event(lesson, subjects, teachers, rooms, classes):
     ltype    = lesson_type(lesson)
     start_dt = parse_dt(lesson["date"], lesson["startTime"])
     end_dt   = parse_dt(lesson["date"], lesson["endTime"])
 
     event = Event()
     event.add("uid",         str(uuid.uuid4()))
-    event.add("summary",     build_summary(lesson, ltype))
-    event.add("description", build_description(lesson, ltype))
+    event.add("summary",     build_summary(lesson, ltype, subjects))
+    event.add("description", build_description(lesson, ltype, teachers, rooms, classes))
     event.add("dtstart",     start_dt)
     event.add("dtend",       end_dt)
     event.add("dtstamp",     datetime.datetime.now(tz=pytz.utc))
 
-    rooms = ", ".join(r.get("name") or r.get("longName") or "?" for r in lesson.get("ro", []))
-    if rooms: event.add("location", rooms)
+    ro = resolve(lesson.get("ro", []), rooms)
+    if ro: event.add("location", ro)
     if ltype == "CANCELLED": event.add("status", "CANCELLED")
 
     return event
@@ -121,14 +133,19 @@ def main():
     person_id = login()
 
     try:
+        print("Lade Stammdaten...")
+        subjects = build_lookup("getSubjects")
+        teachers = build_lookup("getTeachers")
+        rooms    = build_lookup("getRooms")
+        classes  = build_lookup("getKlassen")
+        print(f"  {len(subjects)} Fächer, {len(teachers)} Lehrer, {len(rooms)} Räume, {len(classes)} Klassen")
+
         today = datetime.date.today()
         end   = today + datetime.timedelta(weeks=8)
         print(f"Hole Stunden von {today} bis {end}...")
 
         timetable = get_timetable(person_id, today, end)
         print(f"{len(timetable)} Stunden gefunden.")
-        if timetable:
-            print(f"Beispiel-Stunde: {timetable[0]}")
 
         cal = Calendar()
         cal.add("prodid",   "-//WebUntis iCal Export//DE")
@@ -141,7 +158,7 @@ def main():
         count = 0
         for lesson in timetable:
             try:
-                cal.add_component(lesson_to_event(lesson))
+                cal.add_component(lesson_to_event(lesson, subjects, teachers, rooms, classes))
                 count += 1
             except Exception as e:
                 print(f"  ⚠ Stunde übersprungen: {e}")
