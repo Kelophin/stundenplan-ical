@@ -28,7 +28,7 @@ jobs:
         env:
           WEBUNTIS_USER: ${{ secrets.WEBUNTIS_USER }}
           WEBUNTIS_PASS: ${{ secrets.WEBUNTIS_PASS }}
-        run: python debug_api.py
+        run: python webuntis_to_ical.py
 
       - name: calendar.ics committen & pushen
         run: |
