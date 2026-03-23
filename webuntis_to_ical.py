@@ -75,7 +75,7 @@ def lesson_type(lesson) -> str:
     return "REGULAR"
 
 def build_summary(lesson, ltype) -> str:
-    subjects = ", ".join(s["name"] for s in lesson.get("su", [])) or "Unbekannt"
+    subjects = ", ".join(s.get("name") or s.get("longName") or "?" for s in lesson.get("su", [])) or "Unbekannt"
     prefix = {
         "CANCELLED":  "❌ AUSFALL – ",
         "IRREGULAR":  "🔄 Vertretung – ",
@@ -86,11 +86,11 @@ def build_summary(lesson, ltype) -> str:
 
 def build_description(lesson, ltype) -> str:
     lines = []
-    teachers = ", ".join(t["name"] for t in lesson.get("te", []))
+    teachers = ", ".join(t.get("name") or t.get("longName") or "?" for t in lesson.get("te", []))
     if teachers:   lines.append(f"Lehrer: {teachers}")
-    rooms = ", ".join(r["name"] for r in lesson.get("ro", []))
+    rooms = ", ".join(r.get("name") or r.get("longName") or "?" for r in lesson.get("ro", []))
     if rooms:      lines.append(f"Raum: {rooms}")
-    classes = ", ".join(c["name"] for c in lesson.get("kl", []))
+    classes = ", ".join(c.get("name") or c.get("longName") or "?" for c in lesson.get("kl", []))
     if classes:    lines.append(f"Klasse: {classes}")
     if lesson.get("info"):      lines.append(f"Info: {lesson['info']}")
     if lesson.get("substText"): lines.append(f"Vertretungstext: {lesson['substText']}")
@@ -110,7 +110,7 @@ def lesson_to_event(lesson) -> Event:
     event.add("dtend",       end_dt)
     event.add("dtstamp",     datetime.datetime.now(tz=pytz.utc))
 
-    rooms = ", ".join(r["name"] for r in lesson.get("ro", []))
+    rooms = ", ".join(r.get("name") or r.get("longName") or "?" for r in lesson.get("ro", []))
     if rooms: event.add("location", rooms)
     if ltype == "CANCELLED": event.add("status", "CANCELLED")
 
@@ -127,6 +127,8 @@ def main():
 
         timetable = get_timetable(person_id, today, end)
         print(f"{len(timetable)} Stunden gefunden.")
+        if timetable:
+            print(f"Beispiel-Stunde: {timetable[0]}")
 
         cal = Calendar()
         cal.add("prodid",   "-//WebUntis iCal Export//DE")
