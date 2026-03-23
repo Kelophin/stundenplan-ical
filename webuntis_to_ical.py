@@ -71,16 +71,16 @@ def get_student_id():
     result = rpc("getStudents")
     if not result:
         raise Exception("Keine Schülerdaten gefunden.")
-    # Finde den eigenen Eintrag per Benutzername
+    # Debug: zeige Felder und ersten Eintrag
+    print(f"Verfügbare Felder: {list(result[0].keys())}")
+    print(f"Erster Eintrag: {result[0]}")
+    # Finde den eigenen Eintrag per Benutzername (verschiedene Felder probieren)
     for s in result:
-        if s.get("name", "").lower() == USERNAME.lower() or s.get("longName", "").lower() == USERNAME.lower():
-            return s["id"]
-    # Fallback: eigene Person über getPersonId
-    person = rpc("getPersonId", {"type": 5, "id": 0, "date": 0})
-    if person:
-        return person
-    # Letzter Fallback: ersten Schüler nehmen (nur wenn Einzelaccount)
-    raise Exception(f"Konnte Schüler-ID nicht ermitteln. Verfügbare Felder: {list(result[0].keys()) if result else 'keine'}") 
+        for field in ("name", "longName", "key", "login"):
+            if s.get(field, "").lower() == USERNAME.lower():
+                print(f"Gefunden via Feld '{field}': ID={s['id']}")
+                return s["id"]
+    raise Exception(f"Konnte Schüler-ID nicht ermitteln. Benutzername '{USERNAME}' nicht in Liste gefunden.")
 
 def get_timetable(student_id, start: datetime.date, end: datetime.date):
     return rpc("getTimetable", {
