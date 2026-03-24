@@ -146,6 +146,9 @@ def main():
 
         timetable = get_timetable(person_id, today, end)
         print(f"{len(timetable)} Stunden gefunden.")
+        cancelled = [l for l in timetable if l.get("code") == 1]
+        irregular = [l for l in timetable if l.get("code") == 2]
+        print(f"  davon Ausfälle: {len(cancelled)}, Vertretungen: {len(irregular)}")
 
         cal = Calendar()
         cal.add("prodid",   "-//WebUntis iCal Export//DE")
